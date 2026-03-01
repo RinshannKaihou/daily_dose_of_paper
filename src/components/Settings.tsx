@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, Save, Plus, X, Loader2 } from 'lucide-react';
+import { Settings as SettingsIcon, Save, Plus, X, Loader2, FolderOpen, RefreshCw } from 'lucide-react';
 import { useConfig } from '../hooks/useConfig';
+import { scanMyPapersDir } from '../utils/api';
 import type { Config } from '../types';
+import { open } from '@tauri-apps/plugin-dialog';
 
 const DATE_RANGE_OPTIONS = [
   { value: 'last1day', label: 'Last 1 day' },
@@ -105,8 +107,10 @@ function Settings() {
 
         {saveMessage && (
           <div
-            className={`mb-4 p-3 rounded-lg ${
+              className={`mb-4 p-3 rounded-lg ${
               saveMessage.includes('success')
+                || (saveMessage.startsWith('Indexed') && saveMessage.includes('failed 0'))
+                || saveMessage === 'Scanning directory...'
                 ? 'bg-green-100 text-green-700'
                 : 'bg-red-100 text-red-700'
             }`}
@@ -228,6 +232,69 @@ function Settings() {
                 ))}
               </select>
             </div>
+          </div>
+        </div>
+
+        {/* My Papers Directory */}
+        <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">My Papers Directory</h2>
+          <p className="text-sm text-gray-500 mb-4">
+            Set a folder containing your personal PDF collection. Papers will be automatically loaded
+            and available to add to projects.
+          </p>
+
+          <div className="space-y-3">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={localConfig.my_papers_dir || ''}
+                onChange={(e) =>
+                  setLocalConfig({ ...localConfig, my_papers_dir: e.target.value || null })
+                }
+                placeholder="/path/to/your/papers"
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 font-mono text-sm"
+              />
+              <button
+                onClick={async () => {
+                  const selected = await open({
+                    directory: true,
+                    multiple: false,
+                    title: 'Select My Papers Directory',
+                  });
+                  if (selected) {
+                    setLocalConfig({ ...localConfig, my_papers_dir: selected as string });
+                  }
+                }}
+                className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                <FolderOpen className="w-4 h-4" />
+                Browse
+              </button>
+            </div>
+
+            {localConfig.my_papers_dir && (
+              <button
+                onClick={async () => {
+                  try {
+                    // Save config first to ensure the backend reads the correct my_papers_dir
+                    await saveConfig(localConfig);
+                    setSaveMessage('Scanning directory...');
+                    const scan = await scanMyPapersDir();
+                    const summary =
+                      `Indexed ${scan.indexed}, updated ${scan.updated}, skipped ${scan.skipped}, failed ${scan.failed}.`;
+                    const warningSuffix = scan.warnings.length > 0 ? ` Warning: ${scan.warnings[0]}` : '';
+                    setSaveMessage(summary + warningSuffix);
+                    setTimeout(() => setSaveMessage(''), 3000);
+                  } catch (err) {
+                    setSaveMessage(`Error: ${err instanceof Error ? err.message : String(err)}`);
+                  }
+                }}
+                className="flex items-center gap-2 px-4 py-2 bg-primary-100 text-primary-700 rounded-lg hover:bg-primary-200 transition-colors"
+              >
+                <RefreshCw className="w-4 h-4" />
+                Scan for New Papers
+              </button>
+            )}
           </div>
         </div>
 

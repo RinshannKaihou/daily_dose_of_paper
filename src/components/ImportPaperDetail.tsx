@@ -1,66 +1,92 @@
-import { usePaperDetail } from '../hooks/usePapers';
-import { usePapers } from '../contexts/PapersContext';
-import { ArrowLeft, ExternalLink, FileText, Sparkles, Loader2, AlertCircle, X } from 'lucide-react';
-import { openPdf, openUrl } from '../utils/api';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { ArrowLeft, FileText, Sparkles, Loader2, AlertCircle, X, FolderOpen } from 'lucide-react';
+import {
+  getImportedPaperDetail,
+  analyzeImportedPaper,
+  openImportedPdf,
+  showImportedPdfInFolder,
+} from '../utils/api';
+import type { ImportedPaperDetail } from '../types';
 import MarkdownRenderer from './MarkdownRenderer';
 
-interface PaperDetailProps {
+interface ImportPaperDetailProps {
   paperId: string;
   onBack: () => void;
 }
 
-function PaperDetail({ paperId, onBack }: PaperDetailProps) {
-  const { selectedDate, dayPapers, analyzePaper, error: contextError, clearError, analyzingPaperId } = usePapers();
-  const { detail, loading, error } = usePaperDetail(selectedDate, paperId);
+function ImportPaperDetail({ paperId, onBack }: ImportPaperDetailProps) {
+  const [detail, setDetail] = useState<ImportedPaperDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
   const [localAnalysis, setLocalAnalysis] = useState<string | null>(null);
-  const [localError, setLocalError] = useState<string | null>(null);
 
-  const paper = dayPapers?.papers.find((p) => p.id === paperId);
-  const isAnalyzingThis = analyzingPaperId === paperId;
+  useEffect(() => {
+    loadDetail();
+  }, [paperId]);
+
+  const loadDetail = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const result = await getImportedPaperDetail(paperId);
+      setDetail(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleAnalyze = async () => {
+    if (!detail) return;
+
     try {
-      setLocalError(null);
-      clearError();
-      const result = await analyzePaper(paperId);
-      if (result) {
-        setLocalAnalysis(result);
-      }
+      setAnalyzing(true);
+      setError(null);
+      const result = await analyzeImportedPaper(paperId);
+      setLocalAnalysis(result);
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : String(err);
-      setLocalError(errorMsg);
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAnalyzing(false);
     }
   };
 
   const handleOpenPdf = async () => {
-    if (!selectedDate) {
-      setLocalError('No date selected');
-      return;
-    }
     try {
-      await openPdf(selectedDate, paperId);
+      await openImportedPdf(paperId);
     } catch (err) {
-      const errorMsg = err instanceof Error ? err.message : String(err);
-      setLocalError(errorMsg);
+      setError(err instanceof Error ? err.message : String(err));
     }
   };
 
-  const displayError = localError || contextError;
-
-  const clearAllErrors = () => {
-    setLocalError(null);
-    clearError();
+  const handleShowInFolder = async () => {
+    try {
+      await showImportedPdfInFolder(paperId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
   };
 
-  // Show message if no date is selected
-  if (!selectedDate) {
+  const clearError = () => {
+    setError(null);
+  };
+
+  if (loading) {
+    return (
+      <div className="h-full flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-primary-600" />
+      </div>
+    );
+  }
+
+  if (error && !detail) {
     return (
       <div className="h-full flex items-center justify-center">
         <div className="text-center text-gray-500">
-          <AlertCircle className="w-16 h-16 mx-auto mb-4 text-amber-300" />
-          <p className="text-lg">No date selected</p>
-          <p className="text-sm mt-2">Please select a date from the sidebar first</p>
+          <AlertCircle className="w-16 h-16 mx-auto mb-4 text-red-300" />
+          <p className="text-lg">{error}</p>
           <button
             onClick={onBack}
             className="mt-4 text-primary-600 hover:text-primary-700"
@@ -72,19 +98,11 @@ function PaperDetail({ paperId, onBack }: PaperDetailProps) {
     );
   }
 
-  if (loading) {
-    return (
-      <div className="h-full flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-primary-600" />
-      </div>
-    );
-  }
-
-  if (error || !detail) {
+  if (!detail) {
     return (
       <div className="h-full flex items-center justify-center">
         <div className="text-center text-gray-500">
-          <p className="text-lg">{error || 'Paper not found'}</p>
+          <p className="text-lg">Paper not found</p>
           <button
             onClick={onBack}
             className="mt-4 text-primary-600 hover:text-primary-700"
@@ -107,25 +125,37 @@ function PaperDetail({ paperId, onBack }: PaperDetailProps) {
           className="flex items-center gap-2 text-gray-500 hover:text-gray-700"
         >
           <ArrowLeft className="w-4 h-4" />
-          Back to papers
+          Back to All Papers
         </button>
       </div>
 
       <div className="max-w-4xl mx-auto p-6">
         {/* Header */}
         <div className="mb-6">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-xs px-2 py-0.5 rounded bg-green-100 text-green-700">
+              My Papers
+            </span>
+            {analysis && (
+              <span className="text-xs px-2 py-0.5 rounded bg-amber-100 text-amber-700 flex items-center gap-1">
+                <Sparkles className="w-3 h-3" />
+                Analyzed
+              </span>
+            )}
+          </div>
 
           <h1 className="text-2xl font-bold text-gray-900 mb-2">{detail.title}</h1>
 
-          <p className="text-gray-600 mb-3">{detail.authors}</p>
+          {detail.authors && (
+            <p className="text-gray-600 mb-3">{detail.authors}</p>
+          )}
 
           <div className="flex items-center gap-4 text-sm text-gray-500 mb-4">
-            <span>Published: {new Date(detail.published).toLocaleDateString()}</span>
-            {paper?.categories.map((cat) => (
-              <span key={cat} className="bg-gray-100 px-2 py-1 rounded">
-                {cat}
-              </span>
-            ))}
+            <span>Imported: {new Date(detail.imported_at).toLocaleDateString()}</span>
+          </div>
+
+          <div className="text-sm text-gray-400 mb-4 truncate" title={detail.file_path}>
+            <span className="font-mono">{detail.file_path}</span>
           </div>
 
           <div className="flex items-center gap-3">
@@ -137,43 +167,37 @@ function PaperDetail({ paperId, onBack }: PaperDetailProps) {
               Open PDF
             </button>
             <button
-              onClick={() => {
-                if (detail.arxiv_url) {
-                  openUrl(detail.arxiv_url);
-                } else {
-                  setLocalError('arXiv URL not available');
-                }
-              }}
+              onClick={handleShowInFolder}
               className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
             >
-              <ExternalLink className="w-4 h-4" />
-              View on arXiv
+              <FolderOpen className="w-4 h-4" />
+              Show in Folder
             </button>
             <button
               onClick={handleAnalyze}
-              disabled={isAnalyzingThis}
+              disabled={analyzing}
               className="flex items-center gap-2 bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 disabled:opacity-50 transition-colors"
             >
-              {isAnalyzingThis ? (
+              {analyzing ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
                 <Sparkles className="w-4 h-4" />
               )}
-              {isAnalyzingThis ? 'Analyzing...' : analysis ? 'Re-analyze' : 'Analyze with Claude'}
+              {analyzing ? 'Analyzing...' : analysis ? 'Re-analyze' : 'Analyze with Claude'}
             </button>
           </div>
         </div>
 
         {/* Error Message */}
-        {displayError && (
+        {error && (
           <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
             <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
             <div className="flex-1">
               <p className="text-red-700 font-medium">Error</p>
-              <p className="text-red-600 text-sm mt-1">{displayError}</p>
+              <p className="text-red-600 text-sm mt-1">{error}</p>
             </div>
             <button
-              onClick={clearAllErrors}
+              onClick={clearError}
               className="text-red-400 hover:text-red-600"
             >
               <X className="w-5 h-5" />
@@ -181,15 +205,9 @@ function PaperDetail({ paperId, onBack }: PaperDetailProps) {
           </div>
         )}
 
-        {/* Abstract */}
-        <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-3">Abstract</h2>
-          <p className="text-gray-700 leading-relaxed">{detail.summary}</p>
-        </div>
-
         {/* Analysis */}
         {analysis && (
-          <div className="bg-white rounded-lg border border-gray-200 p-6">
+          <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-3">Analysis</h2>
             <MarkdownRenderer content={analysis} />
           </div>
@@ -207,9 +225,20 @@ function PaperDetail({ paperId, onBack }: PaperDetailProps) {
             </div>
           </div>
         )}
+
+        {/* No content message */}
+        {!analysis && !detail.pdf_text && (
+          <div className="bg-white rounded-lg border border-gray-200 p-6 text-center text-gray-500">
+            <FileText className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+            <p>No PDF content available.</p>
+            <p className="text-sm mt-1">
+              Click "Analyze with Claude" to extract and analyze the paper.
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-export default PaperDetail;
+export default ImportPaperDetail;
