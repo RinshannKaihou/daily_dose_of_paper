@@ -118,6 +118,7 @@ function AppContent() {
               setView('papers');
             }}
             onPaperSelect={handlePaperSelect}
+            onImportedPaperSelect={handleImportedPaperSelect}
           />
         )}
         {view === 'import-detail' && selectedImportedPaperId && (

@@ -1003,6 +1003,7 @@ pub async fn get_project_papers(
         .ok_or_else(|| "Project not found".to_string())?;
 
     let mut papers = Vec::new();
+    let imported_analyses_dir = get_imported_analyses_dir(&app);
 
     for paper_id in &project.paper_ids {
         if paper_id.starts_with("arxiv:") {
@@ -1013,6 +1014,12 @@ pub async fn get_project_papers(
         } else {
             // Find imported paper
             if let Some(imported) = data.imported_papers.iter().find(|p| &p.id == paper_id) {
+                let analysis_path = imported_analyses_dir.join(format!("{}.md", imported.id));
+                let analysis_path_str = if analysis_path.exists() {
+                    Some(analysis_path.to_string_lossy().to_string())
+                } else {
+                    None
+                };
                 papers.push(UnifiedPaper {
                     id: imported.id.clone(),
                     title: imported.title.clone(),
@@ -1022,7 +1029,7 @@ pub async fn get_project_papers(
                     source: "imported".to_string(),
                     arxiv_url: None,
                     pdf_path: Some(imported.file_path.clone()),
-                    analysis_path: None,
+                    analysis_path: analysis_path_str,
                     categories: vec![],
                     file_path: Some(imported.file_path.clone()),
                     imported_at: Some(imported.imported_at.clone()),
@@ -1316,6 +1323,7 @@ pub async fn analyze_project(app: tauri::AppHandle, project_id: String) -> Resul
     // Collect all paper analyses
     let mut analyses = Vec::new();
     let papers_dir = get_papers_dir(&app);
+    let imported_analyses_dir = get_imported_analyses_dir(&app);
 
     for paper_id in &project.paper_ids {
         if paper_id.starts_with("arxiv:") {
@@ -1348,6 +1356,13 @@ pub async fn analyze_project(app: tauri::AppHandle, project_id: String) -> Resul
                         }
                     }
                 }
+            }
+        } else if let Some(imported) = data.imported_papers.iter().find(|p| p.id == *paper_id) {
+            let analysis_path = imported_analyses_dir.join(format!("{}.md", paper_id));
+            if analysis_path.exists() {
+                let analysis = fs::read_to_string(&analysis_path)
+                    .map_err(|e| format!("Failed to read imported analysis: {}", e))?;
+                analyses.push((imported.title.clone(), analysis));
             }
         }
     }

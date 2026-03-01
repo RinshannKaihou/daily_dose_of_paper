@@ -23,9 +23,10 @@ interface ProjectDetailProps {
   projectId: string;
   onBack: () => void;
   onPaperSelect?: (paperId: string, date?: string) => void;
+  onImportedPaperSelect?: (paperId: string) => void;
 }
 
-function ProjectDetail({ projectId, onBack, onPaperSelect }: ProjectDetailProps) {
+function ProjectDetail({ projectId, onBack, onPaperSelect, onImportedPaperSelect }: ProjectDetailProps) {
   const [project, setProject] = useState<Project | null>(null);
   const [papers, setPapers] = useState<UnifiedPaper[]>([]);
   const [analysis, setAnalysis] = useState<string | null>(null);
@@ -91,9 +92,15 @@ function ProjectDetail({ projectId, onBack, onPaperSelect }: ProjectDetailProps)
   };
 
   const handlePaperClick = (paper: UnifiedPaper) => {
-    if (onPaperSelect) {
-      const date = paper.published.split('T')[0];
-      onPaperSelect(paper.id, date);
+    if (paper.source === 'arxiv' && onPaperSelect) {
+      const rawId = paper.id.replace(/^arxiv:/, '');
+      if (paper.date_folder) {
+        onPaperSelect(rawId, paper.date_folder);
+      } else {
+        onPaperSelect(rawId);
+      }
+    } else if (paper.source === 'imported' && onImportedPaperSelect) {
+      onImportedPaperSelect(paper.id);
     }
   };
 
