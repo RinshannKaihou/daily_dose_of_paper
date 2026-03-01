@@ -1,0 +1,10 @@
+{
+  "search_queries": [
+    "LLM observability",
+    "LLM training stability",
+    "LLM interpretability"
+  ],
+  "max_papers_per_day": 10,
+  "date_range": "last7days",
+  "categories": ["cs.CL", "cs.LG", "cs.AI"]
+}
