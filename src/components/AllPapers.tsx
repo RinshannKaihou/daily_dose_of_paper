@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, type UIEvent } from 'react';
 import {
   Search,
   FileText,
@@ -19,20 +19,46 @@ interface AllPapersProps {
   onImportedPaperSelect?: (paperId: string) => void;
 }
 
+type SourceFilter = 'all' | 'arxiv' | 'imported';
+
+interface AllPapersCacheState {
+  papers: UnifiedPaper[];
+  projects: Project[];
+  config: Config | null;
+  searchQuery: string;
+  sourceFilter: SourceFilter;
+  scrollTop: number;
+  hasLoaded: boolean;
+}
+
+let allPapersCache: AllPapersCacheState = {
+  papers: [],
+  projects: [],
+  config: null,
+  searchQuery: '',
+  sourceFilter: 'all',
+  scrollTop: 0,
+  hasLoaded: false,
+};
+
 function AllPapers({ onPaperSelect, onImportedPaperSelect }: AllPapersProps) {
-  const [papers, setPapers] = useState<UnifiedPaper[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [papers, setPapers] = useState<UnifiedPaper[]>(allPapersCache.papers);
+  const [loading, setLoading] = useState(!allPapersCache.hasLoaded);
   const [error, setError] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [sourceFilter, setSourceFilter] = useState<'all' | 'arxiv' | 'imported'>('all');
-  const [projects, setProjects] = useState<Project[]>([]);
+  const [searchQuery, setSearchQuery] = useState(allPapersCache.searchQuery);
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>(allPapersCache.sourceFilter);
+  const [projects, setProjects] = useState<Project[]>(allPapersCache.projects);
   const [showProjectMenu, setShowProjectMenu] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
-  const [config, setConfig] = useState<Config | null>(null);
+  const [config, setConfig] = useState<Config | null>(allPapersCache.config);
   const menuRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const hasRestoredScrollRef = useRef(false);
 
   useEffect(() => {
-    loadData();
+    if (!allPapersCache.hasLoaded) {
+      void loadData();
+    }
 
     // Close menu on outside click
     const handleClickOutside = (e: MouseEvent) => {
@@ -41,8 +67,25 @@ function AllPapers({ onPaperSelect, onImportedPaperSelect }: AllPapersProps) {
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      if (listRef.current) {
+        allPapersCache.scrollTop = listRef.current.scrollTop;
+      }
+    };
   }, []);
+
+  useEffect(() => {
+    allPapersCache = {
+      ...allPapersCache,
+      papers,
+      projects,
+      config,
+      searchQuery,
+      sourceFilter,
+      hasLoaded: allPapersCache.hasLoaded || (!loading && !error),
+    };
+  }, [papers, projects, config, searchQuery, sourceFilter, loading, error]);
 
   const loadData = async () => {
     try {
@@ -100,6 +143,14 @@ function AllPapers({ onPaperSelect, onImportedPaperSelect }: AllPapersProps) {
     return matchesSearch && matchesSource;
   });
 
+  useEffect(() => {
+    if (loading || hasRestoredScrollRef.current || !listRef.current) {
+      return;
+    }
+    listRef.current.scrollTop = allPapersCache.scrollTop;
+    hasRestoredScrollRef.current = true;
+  }, [loading, filteredPapers.length]);
+
   const formatDate = (dateStr: string) => {
     try {
       const date = new Date(dateStr);
@@ -123,6 +174,10 @@ function AllPapers({ onPaperSelect, onImportedPaperSelect }: AllPapersProps) {
       // The ID might be a UUID or a file: hash - pass it directly
       onImportedPaperSelect(paper.id);
     }
+  };
+
+  const handleListScroll = (event: UIEvent<HTMLDivElement>) => {
+    allPapersCache.scrollTop = event.currentTarget.scrollTop;
   };
 
   const arxivCount = papers.filter((p) => p.source === 'arxiv').length;
@@ -182,7 +237,7 @@ function AllPapers({ onPaperSelect, onImportedPaperSelect }: AllPapersProps) {
             <Filter className="w-4 h-4 text-gray-400" />
             <select
               value={sourceFilter}
-              onChange={(e) => setSourceFilter(e.target.value as any)}
+              onChange={(e) => setSourceFilter(e.target.value as SourceFilter)}
               className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
             >
               <option value="all">All Sources</option>
@@ -211,7 +266,11 @@ function AllPapers({ onPaperSelect, onImportedPaperSelect }: AllPapersProps) {
       )}
 
       {/* Papers List */}
-      <div className="flex-1 overflow-y-auto p-4">
+      <div
+        ref={listRef}
+        onScroll={handleListScroll}
+        className="flex-1 overflow-y-auto p-4"
+      >
         {loading ? (
           <div className="flex items-center justify-center h-32">
             <Loader2 className="w-6 h-6 animate-spin text-primary-600" />
@@ -228,11 +287,17 @@ function AllPapers({ onPaperSelect, onImportedPaperSelect }: AllPapersProps) {
           </div>
         ) : (
           <div className="space-y-3">
-            {filteredPapers.map((paper) => (
-              <div
-                key={paper.id}
-                className="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md transition-shadow"
-              >
+            {filteredPapers.map((paper) => {
+              const oneLineSummary = paper.one_line_summary?.trim();
+              const displaySummary = oneLineSummary
+                ? `一句话总结：${oneLineSummary}`
+                : paper.summary;
+
+              return (
+                <div
+                  key={paper.id}
+                  className="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md transition-shadow"
+                >
                 <div className="flex items-start justify-between">
                   <div
                     className="flex-1 cursor-pointer"
@@ -265,8 +330,8 @@ function AllPapers({ onPaperSelect, onImportedPaperSelect }: AllPapersProps) {
                       {paper.authors.slice(0, 3).join(', ')}
                       {paper.authors.length > 3 && ` et al. (${paper.authors.length} authors)`}
                     </p>
-                    {paper.summary && (
-                      <p className="text-sm text-gray-500 line-clamp-2">{paper.summary}</p>
+                    {displaySummary && (
+                      <p className="text-sm text-gray-500 line-clamp-2">{displaySummary}</p>
                     )}
                   </div>
 
@@ -320,8 +385,9 @@ function AllPapers({ onPaperSelect, onImportedPaperSelect }: AllPapersProps) {
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

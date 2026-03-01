@@ -223,11 +223,17 @@ function ProjectDetail({ projectId, onBack, onPaperSelect, onImportedPaperSelect
             </div>
           ) : (
             <div className="space-y-3">
-              {papers.map((paper) => (
-                <div
-                  key={paper.id}
-                  className="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md transition-shadow"
-                >
+              {papers.map((paper) => {
+                const oneLineSummary = paper.one_line_summary?.trim();
+                const displaySummary = oneLineSummary
+                  ? `一句话总结：${oneLineSummary}`
+                  : paper.summary;
+
+                return (
+                  <div
+                    key={paper.id}
+                    className="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md transition-shadow"
+                  >
                   <div className="flex items-start justify-between">
                     <div
                       className="flex-1 cursor-pointer"
@@ -261,6 +267,11 @@ function ProjectDetail({ projectId, onBack, onPaperSelect, onImportedPaperSelect
                         {paper.authors.slice(0, 3).join(', ')}
                         {paper.authors.length > 3 && ` et al.`}
                       </p>
+                      {displaySummary && (
+                        <p className="text-sm text-gray-500 line-clamp-2 mt-2">
+                          {displaySummary}
+                        </p>
+                      )}
                     </div>
 
                     {/* Actions */}
@@ -283,8 +294,9 @@ function ProjectDetail({ projectId, onBack, onPaperSelect, onImportedPaperSelect
                       </button>
                     </div>
                   </div>
-                </div>
-              ))}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

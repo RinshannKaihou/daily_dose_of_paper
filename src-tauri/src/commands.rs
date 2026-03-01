@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use tauri::Manager;
 use uuid::Uuid;
@@ -42,6 +42,7 @@ pub struct Paper {
     pub title: String,
     pub authors: Vec<String>,
     pub summary: String,
+    pub one_line_summary: Option<String>,
     pub published: String,
     pub arxiv_url: String,
     pub pdf_path: Option<String>,
@@ -54,6 +55,83 @@ pub struct DayPapers {
     pub date: String,
     pub papers: Vec<Paper>,
     pub daily_review: Option<String>,
+}
+
+fn normalize_heading_marker(line: &str) -> String {
+    line.chars()
+        .filter(|c| !c.is_whitespace() && !matches!(c, '*' | '#' | '`' | '_' | '-'))
+        .collect()
+}
+
+fn trim_summary_candidate(line: &str) -> String {
+    let mut candidate = line.trim();
+    candidate = candidate.trim_start_matches(['-', '*', '>', ' ']);
+
+    if let Some((prefix, rest)) = candidate.split_once(". ") {
+        if prefix.chars().all(|c| c.is_ascii_digit()) {
+            candidate = rest;
+        }
+    }
+
+    candidate
+        .trim()
+        .trim_matches('*')
+        .trim_matches('_')
+        .trim()
+        .to_string()
+}
+
+fn extract_one_line_summary(analysis: &str) -> Option<String> {
+    let lines: Vec<&str> = analysis.lines().collect();
+
+    for (idx, line) in lines.iter().enumerate() {
+        if !line.contains("一句话总结") {
+            continue;
+        }
+
+        if let Some(pos) = line.find("一句话总结") {
+            let inline = trim_summary_candidate(
+                line[pos + "一句话总结".len()..]
+                    .trim()
+                    .trim_start_matches([':', '：', '-', '—', '|']),
+            );
+            if !inline.is_empty() {
+                return Some(inline);
+            }
+        }
+
+        for next_line in lines.iter().skip(idx + 1) {
+            let trimmed = next_line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+
+            let normalized = normalize_heading_marker(trimmed);
+            if normalized.contains("核心贡献")
+                || normalized.contains("方法论")
+                || normalized.contains("实验结果")
+                || normalized.contains("每日锐评")
+                || normalized.contains("推荐指数")
+                || normalized.contains("适合人群")
+                || normalized.contains("一句话总结")
+            {
+                break;
+            }
+
+            let candidate = trim_summary_candidate(trimmed);
+            if !candidate.is_empty() {
+                return Some(candidate);
+            }
+        }
+    }
+
+    None
+}
+
+fn read_one_line_summary_from_analysis_path(path: &Path) -> Option<String> {
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|analysis| extract_one_line_summary(&analysis))
 }
 
 fn get_app_dir(app: &tauri::AppHandle) -> PathBuf {
@@ -233,6 +311,10 @@ pub async fn get_day_papers(app: tauri::AppHandle, date: String) -> Result<DayPa
         let analysis_file = analysis_dir.join(format!("{}.md", paper.id));
         if analysis_file.exists() {
             paper.analysis_path = Some(analysis_file.to_string_lossy().to_string());
+            paper.one_line_summary = read_one_line_summary_from_analysis_path(&analysis_file);
+        } else {
+            paper.analysis_path = None;
+            paper.one_line_summary = None;
         }
     }
 
@@ -806,6 +888,7 @@ pub struct UnifiedPaper {
     pub title: String,
     pub authors: Vec<String>,
     pub summary: String,
+    pub one_line_summary: Option<String>,
     pub published: String,
     pub source: String,
     pub arxiv_url: Option<String>,
@@ -1025,6 +1108,7 @@ pub async fn get_project_papers(
                     title: imported.title.clone(),
                     authors: imported.authors.clone(),
                     summary: String::new(),
+                    one_line_summary: read_one_line_summary_from_analysis_path(&analysis_path),
                     published: imported.imported_at.clone(),
                     source: "imported".to_string(),
                     arxiv_url: None,
@@ -1076,21 +1160,22 @@ fn find_arxiv_paper(
                 if let Some(paper) = papers.iter().find(|p| p.id == arxiv_id) {
                     let analysis_dir = day_dir.join("analysis");
                     let analysis_path = if analysis_dir.join(format!("{}.md", paper.id)).exists() {
-                        Some(
-                            analysis_dir
-                                .join(format!("{}.md", paper.id))
-                                .to_string_lossy()
-                                .to_string(),
-                        )
+                        let analysis_file = analysis_dir.join(format!("{}.md", paper.id));
+                        Some(analysis_file.to_string_lossy().to_string())
                     } else {
                         None
                     };
+
+                    let one_line_summary = analysis_path
+                        .as_ref()
+                        .and_then(|path| read_one_line_summary_from_analysis_path(Path::new(path)));
 
                     return Ok(Some(UnifiedPaper {
                         id: format!("arxiv:{}", paper.id),
                         title: paper.title.clone(),
                         authors: paper.authors.clone(),
                         summary: paper.summary.clone(),
+                        one_line_summary,
                         published: paper.published.clone(),
                         source: "arxiv".to_string(),
                         arxiv_url: Some(paper.arxiv_url.clone()),
@@ -1206,23 +1291,22 @@ pub async fn get_all_papers(app: tauri::AppHandle) -> Result<Vec<UnifiedPaper>, 
 
                     for paper in papers {
                         let analysis_dir = day_dir.join("analysis");
-                        let analysis_path =
-                            if analysis_dir.join(format!("{}.md", paper.id)).exists() {
-                                Some(
-                                    analysis_dir
-                                        .join(format!("{}.md", paper.id))
-                                        .to_string_lossy()
-                                        .to_string(),
-                                )
-                            } else {
-                                None
-                            };
+                        let analysis_file = analysis_dir.join(format!("{}.md", paper.id));
+                        let analysis_path = if analysis_file.exists() {
+                            Some(analysis_file.to_string_lossy().to_string())
+                        } else {
+                            None
+                        };
+
+                        let one_line_summary =
+                            read_one_line_summary_from_analysis_path(&analysis_file);
 
                         all_papers.push(UnifiedPaper {
                             id: format!("arxiv:{}", paper.id),
                             title: paper.title,
                             authors: paper.authors,
                             summary: paper.summary,
+                            one_line_summary,
                             published: paper.published,
                             source: "arxiv".to_string(),
                             arxiv_url: Some(paper.arxiv_url),
@@ -1255,6 +1339,7 @@ pub async fn get_all_papers(app: tauri::AppHandle) -> Result<Vec<UnifiedPaper>, 
             title: resolve_imported_title(&imported.title, &imported.file_path),
             authors: imported.authors.clone(),
             summary: String::new(),
+            one_line_summary: read_one_line_summary_from_analysis_path(&analysis_path),
             published: imported.imported_at.clone(),
             source: "imported".to_string(),
             arxiv_url: None,

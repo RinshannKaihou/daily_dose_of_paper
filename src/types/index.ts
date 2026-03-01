@@ -11,6 +11,7 @@ export interface Paper {
   title: string;
   authors: string[];
   summary: string;
+  one_line_summary?: string | null;
   published: string;
   arxiv_url: string;
   pdf_path: string | null;
@@ -80,6 +81,7 @@ export interface UnifiedPaper {
   title: string;
   authors: string[];
   summary: string;
+  one_line_summary?: string | null;
   published: string;
   source: 'arxiv' | 'imported';
   arxiv_url?: string;

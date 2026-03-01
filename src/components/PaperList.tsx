@@ -168,12 +168,18 @@ function PaperList({ onPaperSelect }: PaperListProps) {
 
         {/* Paper List */}
         <div className="space-y-4">
-          {dayPapers.papers.map((paper) => (
-            <div
-              key={paper.id}
-              onClick={() => onPaperSelect(paper.id)}
-              className="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md transition-shadow cursor-pointer"
-            >
+          {dayPapers.papers.map((paper) => {
+            const oneLineSummary = paper.one_line_summary?.trim();
+            const displaySummary = oneLineSummary
+              ? `一句话总结：${oneLineSummary}`
+              : paper.summary;
+
+            return (
+              <div
+                key={paper.id}
+                onClick={() => onPaperSelect(paper.id)}
+                className="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md transition-shadow cursor-pointer"
+              >
               <div className="flex items-start justify-between">
                 <div className="flex-1 min-w-0">
                   <h3 className="font-semibold text-gray-900 mb-1 line-clamp-2">
@@ -183,9 +189,11 @@ function PaperList({ onPaperSelect }: PaperListProps) {
                     {paper.authors.slice(0, 3).join(', ')}
                     {paper.authors.length > 3 && ` et al.`}
                   </p>
-                  <p className="text-sm text-gray-600 line-clamp-2 mb-3">
-                    {paper.summary}
-                  </p>
+                  {displaySummary && (
+                    <p className="text-sm text-gray-600 line-clamp-2 mb-3">
+                      {displaySummary}
+                    </p>
+                  )}
                   <div className="flex items-center gap-2 flex-wrap">
                     {paper.categories.map((cat) => (
                       <span
@@ -235,8 +243,9 @@ function PaperList({ onPaperSelect }: PaperListProps) {
                   </button>
                 </div>
               </div>
-            </div>
-          ))}
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>
