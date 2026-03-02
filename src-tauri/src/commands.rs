@@ -485,25 +485,56 @@ pub async fn analyze_paper(
 
     // Create prompt file
     let prompt = format!(
-        r#"Analyze the following paper and provide a structured analysis in Chinese:
+        r#"请对以下论文进行面向研究人员/工程科学家的技术分析。受众是资深研究者，避免空泛描述。
 
-## Paper Information
+## 论文信息
+Paper ID: {}
 Title: {}
 Authors: {}
 
-## Paper Content
+## 论文内容
 {}
 
-## Please provide:
-1. **一句话总结** (One-line summary in 20-30 words)
-2. **核心贡献** (Key contributions - 3-5 bullet points)
-3. **方法论** (Methodology overview)
-4. **实验结果** (Experimental results summary)
-5. **每日锐评** (Daily sharp review - critical evaluation with personal insights)
-6. **推荐指数** (Rating: 1-5 stars, with explanation)
-7. **适合人群** (Target audience - who should read this paper)
+【总则（必须满足）】
+- 全文中文，Markdown。
+- 所有关键判断尽量给出来自论文内容的证据（指标、实验设置、方法细节）；若缺失写“论文未报告”。
+- 区分“论文声称”与“你的分析判断”。
+- 每一节结尾给出置信度：高/中/低，并用一句话说明依据。
+- 重点关注技术新颖性、实验严谨性、可复现性和局限性。
 
-Format the response in Markdown."#,
+## 请按以下结构输出：
+1. **一句话总结**
+- 20-30 字，明确“问题 + 方法 + 结果信号”。
+
+2. **核心贡献**
+- 3-5 条，按重要性排序。
+- 每条尽量包含：解决了什么、相对已有方法的新意、成立条件。
+
+3. **方法论**
+- 简述方法框架与关键机制。
+- 点出核心假设、训练/推理复杂度、可扩展性、可能失败模式。
+- 说明哪些是“方法创新”，哪些是“工程优化”。
+
+4. **实验结果**
+- 结构化列出：数据集、基线、主要指标、提升幅度、消融/对照是否充分。
+- 指出证据强弱与潜在偏差（数据泄漏、评测不公平、统计不足等）。
+- 若缺少关键实验（如消融、鲁棒性、泛化），明确写出。
+
+5. **每日锐评**
+- 给出技术批判与洞见，不少于 3 点。
+- 包含：最可信结论、最可疑结论、最值得复现实验。
+- 提出 1-2 个可执行后续实验建议（含基线与指标）。
+
+6. **推荐指数**
+- 1-5 星，并分别给出四维评分（1-5）：新颖性、严谨性、实用价值、可复现性。
+- 用 2-3 句话解释总评分。
+
+7. **适合人群**
+- 按角色给建议：研究人员、算法工程师、产品/应用团队。
+- 说明“为什么值得读”以及“阅读优先级（高/中/低）”。
+
+除以上 7 个部分外，不要输出其他章节。"#,
+        paper.id,
         paper.title,
         paper.authors.join(", "),
         pdf_text
@@ -575,7 +606,7 @@ pub async fn generate_daily_review(app: tauri::AppHandle, date: String) -> Resul
         if analysis_path.exists() {
             let analysis = fs::read_to_string(&analysis_path)
                 .map_err(|e| format!("Failed to read analysis: {}", e))?;
-            analyses.push((paper.title.clone(), analysis));
+            analyses.push((paper.id.clone(), paper.title.clone(), analysis));
         }
     }
 
@@ -586,24 +617,57 @@ pub async fn generate_daily_review(app: tauri::AppHandle, date: String) -> Resul
     // Create prompt for daily review
     let analyses_text = analyses
         .iter()
-        .map(|(title, analysis)| format!("## {}\n\n{}", title, analysis))
+        .map(|(paper_id, title, analysis)| format!("## [{}] {}\n\n{}", paper_id, title, analysis))
         .collect::<Vec<_>>()
         .join("\n\n---\n\n");
 
     let prompt = format!(
-        r#"Based on the following paper analyses from today, create a comprehensive daily review (每日锐评总结):
+        r#"基于以下论文分析，生成“面向研究人员/工程科学家”的每日技术综述。受众是资深研究者，避免泛泛而谈。
 
 {}
 
-## Please provide:
-1. **今日概览** (Today's overview - brief summary of papers reviewed)
-2. **热点趋势** (Hot trends - common themes and emerging directions)
-3. **推荐必读** (Must read - top 2-3 papers with reasons)
-4. **方法论亮点** (Methodology highlights - interesting approaches across papers)
-5. **行业影响** (Industry impact - potential applications and implications)
-6. **明日关注** (Tomorrow's focus - suggested follow-up topics)
+【输出要求（必须满足）】
+- 全文中文，Markdown。
+- 所有关键判断必须引用来源论文，格式：[paper_id] 或 [标题缩写]。
+- 若原文未提供信息，明确写“论文未报告”，禁止臆测。
+- 每个结论给出置信度：高/中/低，并说明理由。
+- 先给结构化表格，再给分析文字。
+- 对“推荐必读”和“技术革新与下一步实验”给出明确排序。
 
-Format the response in Markdown with engaging and insightful commentary."#,
+## 请按以下结构输出：
+1. **今日概览（Technical Snapshot）**
+- 先给表格：每篇论文包含“研究问题 / 核心方法 / 关键结果（指标或提升幅度） / 主要限制”。
+- 每篇仅保留 1-2 条最关键技术信号。
+
+2. **热点趋势（Evidence-based Trends）**
+- 按“任务 / 方法 / 数据集 / 评测协议”聚类。
+- 每个趋势必须包含：出现论文数、代表论文、为何重要、潜在偏差或反例。
+
+3. **推荐必读（Ranked for Researchers）**
+- 推荐 Top 3，并给评分（1-5）与简要理由：
+  - 新颖性
+  - 技术严谨性（消融与对照是否充分）
+  - 实证强度（数据覆盖与统计可靠性）
+  - 可复现性（代码、细节、算力成本透明度）
+- 说明“适合谁读”以及“读完可获得什么”。
+
+4. **方法论亮点（Methodological Insights）**
+- 横向比较关键方法的核心假设、训练/推理复杂度、可扩展性、失败模式。
+- 区分“真正方法创新”与“工程堆叠优化”。
+
+5. **学术与产业影响（Impact with Constraints）**
+- 分开写：短期可落地价值 vs 长期研究价值。
+- 写清部署前提（算力、数据、系统依赖）与风险（安全性、偏见、鲁棒性、合规）。
+
+6. **技术革新与下一步实验（Innovation Opportunities）**
+- 提出 3-5 个可执行研究假设（Hypothesis）。
+- 每个假设包含：实验设计、对比基线、关键指标、预期失败点。
+- 标注优先级（P1/P2/P3）和风险回报（高回报/高风险等）。
+
+## 结尾附加：
+- **三句话结论**：今天最值得关注的技术信号。
+- **证据薄弱清单**：当前结论最不确定的点。
+"#,
         analyses_text
     );
 
@@ -2051,25 +2115,56 @@ pub async fn analyze_imported_paper(
 
     // Create prompt file
     let prompt = format!(
-        r#"Analyze the following paper and provide a structured analysis in Chinese:
+        r#"请对以下论文进行面向研究人员/工程科学家的技术分析。受众是资深研究者，避免空泛描述。
 
-## Paper Information
+## 论文信息
+Paper ID: {}
 Title: {}
 Authors: {}
 
-## Paper Content
+## 论文内容
 {}
 
-## Please provide:
-1. **一句话总结** (One-line summary in 20-30 words)
-2. **核心贡献** (Key contributions - 3-5 bullet points)
-3. **方法论** (Methodology overview)
-4. **实验结果** (Experimental results summary)
-5. **每日锐评** (Daily sharp review - critical evaluation with personal insights)
-6. **推荐指数** (Rating: 1-5 stars, with explanation)
-7. **适合人群** (Target audience - who should read this paper)
+【总则（必须满足）】
+- 全文中文，Markdown。
+- 所有关键判断尽量给出来自论文内容的证据（指标、实验设置、方法细节）；若缺失写“论文未报告”。
+- 区分“论文声称”与“你的分析判断”。
+- 每一节结尾给出置信度：高/中/低，并用一句话说明依据。
+- 重点关注技术新颖性、实验严谨性、可复现性和局限性。
 
-Format the response in Markdown."#,
+## 请按以下结构输出：
+1. **一句话总结**
+- 20-30 字，明确“问题 + 方法 + 结果信号”。
+
+2. **核心贡献**
+- 3-5 条，按重要性排序。
+- 每条尽量包含：解决了什么、相对已有方法的新意、成立条件。
+
+3. **方法论**
+- 简述方法框架与关键机制。
+- 点出核心假设、训练/推理复杂度、可扩展性、可能失败模式。
+- 说明哪些是“方法创新”，哪些是“工程优化”。
+
+4. **实验结果**
+- 结构化列出：数据集、基线、主要指标、提升幅度、消融/对照是否充分。
+- 指出证据强弱与潜在偏差（数据泄漏、评测不公平、统计不足等）。
+- 若缺少关键实验（如消融、鲁棒性、泛化），明确写出。
+
+5. **每日锐评**
+- 给出技术批判与洞见，不少于 3 点。
+- 包含：最可信结论、最可疑结论、最值得复现实验。
+- 提出 1-2 个可执行后续实验建议（含基线与指标）。
+
+6. **推荐指数**
+- 1-5 星，并分别给出四维评分（1-5）：新颖性、严谨性、实用价值、可复现性。
+- 用 2-3 句话解释总评分。
+
+7. **适合人群**
+- 按角色给建议：研究人员、算法工程师、产品/应用团队。
+- 说明“为什么值得读”以及“阅读优先级（高/中/低）”。
+
+除以上 7 个部分外，不要输出其他章节。"#,
+        paper.id,
         paper.title,
         paper.authors.join(", "),
         pdf_text
