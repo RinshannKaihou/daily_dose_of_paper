@@ -2,12 +2,12 @@ import { useState, useEffect } from 'react';
 import { ArrowLeft, FileText, Sparkles, Loader2, AlertCircle, X, FolderOpen } from 'lucide-react';
 import {
   getImportedPaperDetail,
-  analyzeImportedPaper,
   openImportedPdf,
   showImportedPdfInFolder,
 } from '../utils/api';
 import type { ImportedPaperDetail } from '../types';
 import MarkdownRenderer from './MarkdownRenderer';
+import { usePapers } from '../contexts/PapersContext';
 
 interface ImportPaperDetailProps {
   paperId: string;
@@ -15,10 +15,10 @@ interface ImportPaperDetailProps {
 }
 
 function ImportPaperDetail({ paperId, onBack }: ImportPaperDetailProps) {
+  const { analyzeImportedPaper, importedAnalyzingPaperId, importedQueuedPaperIds } = usePapers();
   const [detail, setDetail] = useState<ImportedPaperDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [analyzing, setAnalyzing] = useState(false);
   const [localAnalysis, setLocalAnalysis] = useState<string | null>(null);
 
   useEffect(() => {
@@ -42,14 +42,13 @@ function ImportPaperDetail({ paperId, onBack }: ImportPaperDetailProps) {
     if (!detail) return;
 
     try {
-      setAnalyzing(true);
       setError(null);
       const result = await analyzeImportedPaper(paperId);
-      setLocalAnalysis(result);
+      if (result) {
+        setLocalAnalysis(result);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setAnalyzing(false);
     }
   };
 
@@ -115,6 +114,8 @@ function ImportPaperDetail({ paperId, onBack }: ImportPaperDetailProps) {
   }
 
   const analysis = localAnalysis || detail.analysis;
+  const isQueuedOrAnalyzing =
+    importedAnalyzingPaperId === paperId || importedQueuedPaperIds.includes(paperId);
 
   return (
     <div className="h-full overflow-y-auto">
@@ -175,15 +176,15 @@ function ImportPaperDetail({ paperId, onBack }: ImportPaperDetailProps) {
             </button>
             <button
               onClick={handleAnalyze}
-              disabled={analyzing}
+              disabled={isQueuedOrAnalyzing}
               className="flex items-center gap-2 bg-primary-600 text-white px-4 py-2 rounded-lg hover:bg-primary-700 disabled:opacity-50 transition-colors"
             >
-              {analyzing ? (
+              {isQueuedOrAnalyzing ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
                 <Sparkles className="w-4 h-4" />
               )}
-              {analyzing ? 'Analyzing...' : analysis ? 'Re-analyze' : 'Analyze with Claude'}
+              {isQueuedOrAnalyzing ? 'Analyzing...' : analysis ? 'Re-analyze' : 'Analyze with Claude'}
             </button>
           </div>
         </div>

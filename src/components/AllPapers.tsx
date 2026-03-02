@@ -9,10 +9,18 @@ import {
   Loader2,
   Filter,
   RefreshCw,
+  Trash2,
 } from 'lucide-react';
-import { getAllPapers, getProjects, addPaperToProject, scanMyPapersDir, getConfig } from '../utils/api';
+import {
+  getAllPapers,
+  getProjects,
+  addPaperToProject,
+  scanMyPapersDir,
+  getConfig,
+} from '../utils/api';
 import type { UnifiedPaper, Project, Config } from '../types';
 import { open } from '@tauri-apps/plugin-shell';
+import { usePapers } from '../contexts/PapersContext';
 
 interface AllPapersProps {
   onPaperSelect?: (paperId: string, date?: string) => void;
@@ -42,6 +50,15 @@ let allPapersCache: AllPapersCacheState = {
 };
 
 function AllPapers({ onPaperSelect, onImportedPaperSelect }: AllPapersProps) {
+  const {
+    analyzePaperForDate,
+    analyzeImportedPaper,
+    deleteDailyPaper,
+    analyzingPaperId,
+    importedAnalyzingPaperId,
+    importedQueuedPaperIds,
+    clearError,
+  } = usePapers();
   const [papers, setPapers] = useState<UnifiedPaper[]>(allPapersCache.papers);
   const [loading, setLoading] = useState(!allPapersCache.hasLoaded);
   const [error, setError] = useState<string | null>(null);
@@ -130,6 +147,52 @@ function AllPapers({ onPaperSelect, onImportedPaperSelect }: AllPapersProps) {
     try {
       await addPaperToProject(paperId, projectId);
       setShowProjectMenu(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handleAnalyze = async (paper: UnifiedPaper) => {
+    try {
+      setError(null);
+      clearError();
+
+      if (paper.source === 'arxiv') {
+        if (!paper.date_folder) {
+          throw new Error('Cannot analyze this arXiv paper: missing date folder.');
+        }
+        const rawId = paper.id.replace(/^arxiv:/, '');
+        await analyzePaperForDate(paper.date_folder, rawId);
+      } else {
+        await analyzeImportedPaper(paper.id);
+      }
+
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handleDelete = async (paper: UnifiedPaper) => {
+    if (paper.source !== 'arxiv') {
+      setError('Delete Completely is currently available for daily arXiv papers only.');
+      return;
+    }
+    if (!paper.date_folder) {
+      setError('Cannot delete this arXiv paper: missing date folder.');
+      return;
+    }
+
+    const confirmed = confirm(
+      'Delete this paper permanently?\n\nThis will remove local metadata, PDF, parsed text, and analysis files.'
+    );
+    if (!confirmed) return;
+
+    try {
+      setError(null);
+      const rawId = paper.id.replace(/^arxiv:/, '');
+      await deleteDailyPaper(rawId, paper.date_folder);
+      await loadData();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -292,6 +355,13 @@ function AllPapers({ onPaperSelect, onImportedPaperSelect }: AllPapersProps) {
               const displaySummary = oneLineSummary
                 ? `一句话总结：${oneLineSummary}`
                 : paper.summary;
+              const rawArxivId = paper.id.replace(/^arxiv:/, '');
+              const isArxivAnalyzing =
+                paper.source === 'arxiv' && analyzingPaperId === rawArxivId;
+              const isImportedQueuedOrAnalyzing =
+                paper.source === 'imported' &&
+                (importedAnalyzingPaperId === paper.id || importedQueuedPaperIds.includes(paper.id));
+              const isAnalyzingThis = isArxivAnalyzing || isImportedQueuedOrAnalyzing;
 
               return (
                 <div
@@ -300,7 +370,7 @@ function AllPapers({ onPaperSelect, onImportedPaperSelect }: AllPapersProps) {
                 >
                 <div className="flex items-start justify-between">
                   <div
-                    className="flex-1 cursor-pointer"
+                    className="flex-1 min-w-0 cursor-pointer"
                     onClick={() => handlePaperClick(paper)}
                   >
                     <div className="flex items-center gap-2 mb-1">
@@ -336,10 +406,13 @@ function AllPapers({ onPaperSelect, onImportedPaperSelect }: AllPapersProps) {
                   </div>
 
                   {/* Actions */}
-                  <div className="flex items-center gap-2 ml-4">
+                  <div className="flex items-center gap-2 ml-4 flex-shrink-0">
                     {paper.arxiv_url && (
                       <button
-                        onClick={() => open(paper.arxiv_url!)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void open(paper.arxiv_url!);
+                        }}
                         className="p-2 hover:bg-gray-100 rounded-lg text-gray-500 hover:text-gray-700"
                         title="Open arXiv page"
                       >
@@ -348,9 +421,10 @@ function AllPapers({ onPaperSelect, onImportedPaperSelect }: AllPapersProps) {
                     )}
                     <div className="relative" ref={showProjectMenu === paper.id ? menuRef : null}>
                       <button
-                        onClick={() =>
+                        onClick={(e) => {
+                          e.stopPropagation();
                           setShowProjectMenu(showProjectMenu === paper.id ? null : paper.id)
-                        }
+                        }}
                         className="p-2 hover:bg-gray-100 rounded-lg text-gray-500 hover:text-gray-700"
                         title="Add to project"
                       >
@@ -369,7 +443,10 @@ function AllPapers({ onPaperSelect, onImportedPaperSelect }: AllPapersProps) {
                             projects.map((project) => (
                               <button
                                 key={project.id}
-                                onClick={() => handleAddToProject(paper.id, project.id)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void handleAddToProject(paper.id, project.id);
+                                }}
                                 className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2"
                               >
                                 <Plus className="w-3 h-3" />
@@ -383,6 +460,43 @@ function AllPapers({ onPaperSelect, onImportedPaperSelect }: AllPapersProps) {
                         </div>
                       )}
                     </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void handleAnalyze(paper);
+                      }}
+                      disabled={isAnalyzingThis}
+                      className={`p-2 hover:bg-primary-50 rounded-lg disabled:opacity-50 ${
+                        paper.analysis_path ? 'text-amber-500' : 'text-primary-600'
+                      }`}
+                      title={
+                        isAnalyzingThis
+                          ? 'Analyzing...'
+                          : paper.analysis_path
+                            ? 'Re-analyze with Claude'
+                            : 'Analyze with Claude'
+                      }
+                    >
+                      {isAnalyzingThis ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Sparkles
+                          className={`w-4 h-4 ${paper.analysis_path ? '[stroke-width:2.5]' : ''}`}
+                        />
+                      )}
+                    </button>
+                    {paper.source === 'arxiv' && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void handleDelete(paper);
+                        }}
+                        className="p-2 hover:bg-red-50 rounded-lg text-red-500 hover:text-red-600"
+                        title="Delete completely"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 </div>
                 </div>

@@ -13,28 +13,55 @@ import { Loader2 } from 'lucide-react';
 type ViewType = 'papers' | 'review' | 'settings' | 'all-papers' | 'project' | 'import-detail';
 
 function AnalyzingIndicator() {
-  const { analyzing, dayPapers, analyzingPaperId, batchProgress } = usePapers();
+  const {
+    analyzing,
+    dayPapers,
+    analyzingPaperId,
+    batchProgress,
+    importedAnalyzingPaperId,
+    importedQueuedPaperIds,
+  } = usePapers();
+  const importedQueueCount = (importedAnalyzingPaperId ? 1 : 0) + importedQueuedPaperIds.length;
 
-  if (!analyzing) return null;
+  if (!analyzing && importedQueueCount === 0) return null;
 
   const currentPaper = dayPapers?.papers.find(p => p.id === analyzingPaperId);
   const paperTitle = currentPaper?.title?.slice(0, 50) + (currentPaper && currentPaper.title.length > 50 ? '...' : '');
 
   return (
-    <div className="fixed bottom-4 right-4 bg-white shadow-lg rounded-lg px-4 py-3 flex items-center gap-3 border border-amber-200 z-50">
-      <Loader2 className="w-5 h-5 text-amber-500 animate-spin" />
-      <div className="text-sm">
-        {batchProgress ? (
-          <>
-            <span className="text-gray-700">Batch analysis: </span>
-            <span className="text-gray-900 font-medium">{batchProgress.current}/{batchProgress.total}</span>
-            <span className="text-gray-500 ml-2">- {paperTitle || 'Paper...'}</span>
-          </>
-        ) : (
-          <>
-            <span className="text-gray-700">Analyzing: </span>
-            <span className="text-gray-900 font-medium">{paperTitle || 'Paper...'}</span>
-          </>
+    <div className="fixed bottom-4 right-4 bg-white shadow-lg rounded-lg px-4 py-3 border border-amber-200 z-50 min-w-80">
+      <div className="text-sm space-y-2">
+        {analyzing && (
+          <div className="flex items-center gap-3">
+            <Loader2 className="w-5 h-5 text-amber-500 animate-spin flex-shrink-0" />
+            <div>
+              {batchProgress ? (
+                <>
+                  <span className="text-gray-700">Batch analysis: </span>
+                  <span className="text-gray-900 font-medium">{batchProgress.current}/{batchProgress.total}</span>
+                  <span className="text-gray-500 ml-2">- {paperTitle || 'Paper...'}</span>
+                </>
+              ) : (
+                <>
+                  <span className="text-gray-700">Analyzing: </span>
+                  <span className="text-gray-900 font-medium">{paperTitle || 'Paper...'}</span>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
+        {importedQueueCount > 0 && (
+          <div className={`flex items-center gap-3 ${analyzing ? 'pt-2 border-t border-gray-100' : ''}`}>
+            <Loader2 className="w-5 h-5 text-amber-500 animate-spin flex-shrink-0" />
+            <div>
+              <span className="text-gray-700">Imported analysis queue: </span>
+              <span className="text-gray-900 font-medium">{importedQueueCount}</span>
+              <span className="text-gray-500 ml-2">
+                ({importedQueuedPaperIds.length} waiting)
+              </span>
+            </div>
+          </div>
         )}
       </div>
     </div>

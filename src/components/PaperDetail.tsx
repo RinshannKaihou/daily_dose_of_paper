@@ -1,6 +1,6 @@
 import { usePaperDetail } from '../hooks/usePapers';
 import { usePapers } from '../contexts/PapersContext';
-import { ArrowLeft, ExternalLink, FileText, Sparkles, Loader2, AlertCircle, X } from 'lucide-react';
+import { ArrowLeft, ExternalLink, FileText, Sparkles, Loader2, AlertCircle, X, Trash2 } from 'lucide-react';
 import { openPdf, openUrl } from '../utils/api';
 import { useState } from 'react';
 import MarkdownRenderer from './MarkdownRenderer';
@@ -11,10 +11,11 @@ interface PaperDetailProps {
 }
 
 function PaperDetail({ paperId, onBack }: PaperDetailProps) {
-  const { selectedDate, dayPapers, analyzePaper, error: contextError, clearError, analyzingPaperId } = usePapers();
+  const { selectedDate, dayPapers, analyzePaper, deleteDailyPaper, error: contextError, clearError, analyzingPaperId } = usePapers();
   const { detail, loading, error } = usePaperDetail(selectedDate, paperId);
   const [localAnalysis, setLocalAnalysis] = useState<string | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const paper = dayPapers?.papers.find((p) => p.id === paperId);
   const isAnalyzingThis = analyzingPaperId === paperId;
@@ -43,6 +44,26 @@ function PaperDetail({ paperId, onBack }: PaperDetailProps) {
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       setLocalError(errorMsg);
+    }
+  };
+
+  const handleDelete = async () => {
+    const confirmed = confirm(
+      'Delete this paper permanently?\n\nThis will remove local metadata, PDF, parsed text, and analysis files.'
+    );
+    if (!confirmed) return;
+
+    try {
+      setDeleting(true);
+      setLocalError(null);
+      clearError();
+      await deleteDailyPaper(paperId);
+      onBack();
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      setLocalError(errorMsg);
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -160,6 +181,18 @@ function PaperDetail({ paperId, onBack }: PaperDetailProps) {
                 <Sparkles className="w-4 h-4" />
               )}
               {isAnalyzingThis ? 'Analyzing...' : analysis ? 'Re-analyze' : 'Analyze with Claude'}
+            </button>
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              className="flex items-center gap-2 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
+            >
+              {deleting ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Trash2 className="w-4 h-4" />
+              )}
+              {deleting ? 'Deleting...' : 'Delete Completely'}
             </button>
           </div>
         </div>

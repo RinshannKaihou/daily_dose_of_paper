@@ -17,6 +17,7 @@ pub fn run() {
             generate_daily_review,
             open_pdf,
             parse_pdfs,
+            delete_daily_paper,
             // Project management
             get_projects,
             create_project,
@@ -35,6 +36,7 @@ pub fn run() {
             scan_my_papers_dir,
             // Imported paper detail & analysis
             get_imported_paper_detail,
+            analyze_unified_paper,
             analyze_imported_paper,
             open_imported_pdf,
             show_imported_pdf_in_folder,

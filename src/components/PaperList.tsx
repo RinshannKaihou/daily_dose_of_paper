@@ -1,17 +1,54 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { usePapers } from '../contexts/PapersContext';
-import { FileText, ExternalLink, Sparkles, Loader2, AlertCircle, X, FileSearch } from 'lucide-react';
-import { openPdf, openUrl } from '../utils/api';
+import {
+  FileText,
+  ExternalLink,
+  Sparkles,
+  Loader2,
+  AlertCircle,
+  X,
+  FileSearch,
+  FolderPlus,
+  Plus,
+  Trash2,
+} from 'lucide-react';
+import { openPdf, openUrl, getProjects, addPaperToProject } from '../utils/api';
+import type { Project } from '../types';
 
 interface PaperListProps {
   onPaperSelect: (paperId: string) => void;
 }
 
 function PaperList({ onPaperSelect }: PaperListProps) {
-  const { dayPapers, selectedDate, loading, analyzePaper, generateDailyReview, parsePdfs, error, clearError, analyzingPaperId } = usePapers();
+  const { dayPapers, selectedDate, loading, analyzePaper, deleteDailyPaper, generateDailyReview, parsePdfs, error, clearError, analyzingPaperId } = usePapers();
   const [generatingReview, setGeneratingReview] = useState(false);
   const [parsingPdfs, setParsingPdfs] = useState(false);
+  const [deletingPaperId, setDeletingPaperId] = useState<string | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [showProjectMenu, setShowProjectMenu] = useState<string | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const loadProjects = async () => {
+      try {
+        const projectList = await getProjects();
+        setProjects(projectList);
+      } catch (err) {
+        setLocalError(err instanceof Error ? err.message : String(err));
+      }
+    };
+
+    loadProjects();
+
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setShowProjectMenu(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const handleAnalyze = async (paperId: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -61,6 +98,46 @@ function PaperList({ onPaperSelect }: PaperListProps) {
       } catch (err) {
         console.error('Failed to open PDF:', err);
       }
+    }
+  };
+
+  const handleAddToProject = async (paperId: string, projectId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const arxivProjectPaperId = `arxiv:${paperId}`;
+    try {
+      setLocalError(null);
+      clearError();
+      await addPaperToProject(arxivProjectPaperId, projectId);
+      setProjects((prev) =>
+        prev.map((project) =>
+          project.id === projectId && !project.paper_ids.includes(arxivProjectPaperId)
+            ? { ...project, paper_ids: [...project.paper_ids, arxivProjectPaperId] }
+            : project
+        )
+      );
+      setShowProjectMenu(null);
+    } catch (err) {
+      setLocalError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handleDelete = async (paperId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const confirmed = confirm(
+      'Delete this paper permanently?\n\nThis will remove local metadata, PDF, parsed text, and analysis files.'
+    );
+    if (!confirmed) return;
+
+    try {
+      setDeletingPaperId(paperId);
+      setLocalError(null);
+      clearError();
+      await deleteDailyPaper(paperId);
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      setLocalError(errorMsg);
+    } finally {
+      setDeletingPaperId(null);
     }
   };
 
@@ -225,6 +302,45 @@ function PaperList({ onPaperSelect }: PaperListProps) {
                   >
                     <ExternalLink className="w-5 h-5" />
                   </button>
+                  <div className="relative" ref={showProjectMenu === paper.id ? menuRef : null}>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowProjectMenu(showProjectMenu === paper.id ? null : paper.id);
+                      }}
+                      className="p-2 hover:bg-gray-100 rounded text-gray-500"
+                      title="Add to project"
+                    >
+                      <FolderPlus className="w-5 h-5" />
+                    </button>
+                    {showProjectMenu === paper.id && (
+                      <div className="absolute right-0 top-full mt-1 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-10">
+                        <div className="px-3 py-1 text-xs text-gray-500 border-b border-gray-100">
+                          Add to project
+                        </div>
+                        {projects.length === 0 ? (
+                          <div className="px-3 py-2 text-sm text-gray-400">
+                            No projects yet
+                          </div>
+                        ) : (
+                          projects.map((project) => (
+                            <button
+                              key={project.id}
+                              onClick={(e) => handleAddToProject(paper.id, project.id, e)}
+                              className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2"
+                            >
+                              <Plus className="w-3 h-3" />
+                              {project.name}
+                              {(project.paper_ids.includes(`arxiv:${paper.id}`) ||
+                                project.paper_ids.includes(paper.id)) && (
+                                <span className="text-xs text-green-600 ml-auto">Added</span>
+                              )}
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
                   <button
                     onClick={(e) => handleAnalyze(paper.id, e)}
                     disabled={analyzingPaperId === paper.id}
@@ -239,6 +355,18 @@ function PaperList({ onPaperSelect }: PaperListProps) {
                       <Sparkles
                         className={`w-5 h-5 ${paper.analysis_path ? '[stroke-width:2.5]' : ''}`}
                       />
+                    )}
+                  </button>
+                  <button
+                    onClick={(e) => handleDelete(paper.id, e)}
+                    disabled={deletingPaperId === paper.id}
+                    className="p-2 hover:bg-red-50 rounded text-red-500 disabled:opacity-50"
+                    title="Delete completely"
+                  >
+                    {deletingPaperId === paper.id ? (
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                    ) : (
+                      <Trash2 className="w-5 h-5" />
                     )}
                   </button>
                 </div>

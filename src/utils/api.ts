@@ -64,6 +64,10 @@ export async function parsePdfs(date: string): Promise<string> {
   return await invoke<string>('parse_pdfs', { date });
 }
 
+export async function deleteDailyPaper(date: string, paperId: string): Promise<void> {
+  return await invoke('delete_daily_paper', { date, paperId });
+}
+
 // ==================== Project Management ====================
 
 export async function getProjects(): Promise<Project[]> {
@@ -134,6 +138,18 @@ export async function getImportedPaperDetail(paperId: string): Promise<ImportedP
 
 export async function analyzeImportedPaper(paperId: string): Promise<string> {
   return await invoke<string>('analyze_imported_paper', { paperId });
+}
+
+export async function analyzeUnifiedPaper(
+  paperId: string,
+  source: 'arxiv' | 'imported',
+  dateFolder?: string
+): Promise<string> {
+  return await invoke<string>('analyze_unified_paper', {
+    paperId,
+    source,
+    dateFolder: dateFolder ?? null,
+  });
 }
 
 export async function openImportedPdf(paperId: string): Promise<void> {

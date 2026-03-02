@@ -167,6 +167,48 @@ fn get_scripts_dir(app: &tauri::AppHandle) -> PathBuf {
         .join("scripts")
 }
 
+fn remove_file_if_exists(path: &Path) -> Result<(), String> {
+    if path.exists() {
+        fs::remove_file(path).map_err(|e| format!("Failed to remove file {}: {}", path.display(), e))?;
+    }
+    Ok(())
+}
+
+fn remove_seen_paper_id_from_list(seen_ids: &mut Vec<String>, paper_id: &str) -> bool {
+    let original_len = seen_ids.len();
+    seen_ids.retain(|id| id != paper_id);
+    seen_ids.len() != original_len
+}
+
+fn remove_seen_paper_id(papers_dir: &Path, paper_id: &str) -> Result<(), String> {
+    let seen_path = papers_dir.join("seen_paper_ids.json");
+    if !seen_path.exists() {
+        return Ok(());
+    }
+
+    let content =
+        fs::read_to_string(&seen_path).map_err(|e| format!("Failed to read seen IDs: {}", e))?;
+    let mut seen_ids: Vec<String> = match serde_json::from_str(&content) {
+        Ok(ids) => ids,
+        Err(err) => {
+            eprintln!(
+                "Warning: seen_paper_ids.json is invalid JSON ({}). Skipping cleanup for {}.",
+                err, paper_id
+            );
+            return Ok(());
+        }
+    };
+
+    if !remove_seen_paper_id_from_list(&mut seen_ids, paper_id) {
+        return Ok(());
+    }
+
+    let updated = serde_json::to_string_pretty(&seen_ids)
+        .map_err(|e| format!("Failed to serialize seen IDs: {}", e))?;
+    fs::write(&seen_path, updated).map_err(|e| format!("Failed to write seen IDs: {}", e))?;
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn get_config(app: tauri::AppHandle) -> Result<Config, String> {
     let config_path = get_config_path(&app);
@@ -207,7 +249,6 @@ pub async fn fetch_papers(app: tauri::AppHandle, date: Option<String>) -> Result
     let target_date = date.unwrap_or_else(|| chrono::Local::now().format("%Y-%m-%d").to_string());
 
     let output_dir = papers_dir.join(&target_date);
-    fs::create_dir_all(&output_dir).map_err(|e| format!("Failed to create output dir: {}", e))?;
 
     let fetch_script = scripts_dir.join("fetch_papers.py");
 
@@ -226,30 +267,40 @@ pub async fn fetch_papers(app: tauri::AppHandle, date: Option<String>) -> Result
         .map_err(|e| format!("Failed to execute fetch script: {}", e))?;
 
     if !fetch_output.status.success() {
-        return Err(String::from_utf8_lossy(&fetch_output.stderr).to_string());
+        let stderr = String::from_utf8_lossy(&fetch_output.stderr).to_string();
+        let stdout = String::from_utf8_lossy(&fetch_output.stdout).to_string();
+        return Err(format!("{}\n{}", stderr, stdout).trim().to_string());
     }
 
-    // Run parse script to extract text from PDFs
-    let parse_script = scripts_dir.join("parse_pdf.py");
-    let parse_output = Command::new("python3")
-        .arg(&parse_script)
-        .arg("--dir")
-        .arg(&output_dir)
-        .output()
-        .map_err(|e| format!("Failed to execute parse script: {}", e))?;
+    let fetch_stdout = String::from_utf8_lossy(&fetch_output.stdout).to_string();
 
-    if !parse_output.status.success() {
-        // Log warning but don't fail - papers are still fetched
-        eprintln!(
-            "Warning: PDF parsing failed: {}",
-            String::from_utf8_lossy(&parse_output.stderr)
-        );
-    }
+    // Only run parse when fetch produced metadata for this date.
+    let metadata_path = output_dir.join("metadata.json");
+    let parse_stdout = if metadata_path.exists() {
+        let parse_script = scripts_dir.join("parse_pdf.py");
+        let parse_output = Command::new("python3")
+            .arg(&parse_script)
+            .arg("--dir")
+            .arg(&output_dir)
+            .output()
+            .map_err(|e| format!("Failed to execute parse script: {}", e))?;
+
+        if !parse_output.status.success() {
+            // Log warning but don't fail - papers are still fetched
+            eprintln!(
+                "Warning: PDF parsing failed: {}",
+                String::from_utf8_lossy(&parse_output.stderr)
+            );
+        }
+
+        String::from_utf8_lossy(&parse_output.stdout).to_string()
+    } else {
+        "Skipped (no metadata.json produced by fetch)".to_string()
+    };
 
     Ok(format!(
         "Fetch: {}\nParse: {}",
-        String::from_utf8_lossy(&fetch_output.stdout),
-        String::from_utf8_lossy(&parse_output.stdout)
+        fetch_stdout, parse_stdout
     ))
 }
 
@@ -266,14 +317,23 @@ pub async fn get_paper_dates(app: tauri::AppHandle) -> Result<Vec<String>, Strin
         fs::read_dir(&papers_dir).map_err(|e| format!("Failed to read papers dir: {}", e))?
     {
         let entry = entry.map_err(|e| format!("Failed to read entry: {}", e))?;
-        if entry.path().is_dir() {
-            if let Some(name) = entry.file_name().to_str() {
-                // Skip non-date directories like 'projects'
-                if name == "projects" {
-                    continue;
-                }
-                dates.push(name.to_string());
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+
+        if let Some(name) = entry.file_name().to_str() {
+            // Skip non-date directories like 'projects'
+            if name == "projects" {
+                continue;
             }
+
+            // Ignore empty/incomplete date folders without metadata.
+            if !path.join("metadata.json").exists() {
+                continue;
+            }
+
+            dates.push(name.to_string());
         }
     }
 
@@ -457,6 +517,8 @@ Format the response in Markdown."#,
 
     use std::io::Write;
     let mut child = Command::new("claude")
+        .arg("--model")
+        .arg("glm-5")
         .arg("--print")
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -551,6 +613,8 @@ Format the response in Markdown with engaging and insightful commentary."#,
 
     use std::io::Write;
     let mut child = Command::new("claude")
+        .arg("--model")
+        .arg("glm-5")
         .arg("--print")
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -646,6 +710,73 @@ pub async fn parse_pdfs(app: tauri::AppHandle, date: String) -> Result<String, S
     } else {
         Err(String::from_utf8_lossy(&output.stderr).to_string())
     }
+}
+
+#[tauri::command]
+pub async fn delete_daily_paper(
+    app: tauri::AppHandle,
+    date: String,
+    paper_id: String,
+) -> Result<(), String> {
+    let papers_dir = get_papers_dir(&app);
+    let day_dir = papers_dir.join(&date);
+    if !day_dir.exists() {
+        return Err("No papers found for this date".to_string());
+    }
+
+    let metadata_path = day_dir.join("metadata.json");
+    if !metadata_path.exists() {
+        return Err("No metadata found for this date".to_string());
+    }
+
+    let content = fs::read_to_string(&metadata_path)
+        .map_err(|e| format!("Failed to read metadata: {}", e))?;
+    let mut papers: Vec<Paper> =
+        serde_json::from_str(&content).map_err(|e| format!("Failed to parse metadata: {}", e))?;
+
+    let idx = papers
+        .iter()
+        .position(|paper| paper.id == paper_id)
+        .ok_or_else(|| "Paper not found".to_string())?;
+    papers.remove(idx);
+
+    let mut projects_data = load_projects_data(&app)?;
+    let arxiv_prefixed_id = format!("arxiv:{}", paper_id);
+    let mut projects_changed = false;
+    for project in &mut projects_data.projects {
+        let before_len = project.paper_ids.len();
+        project
+            .paper_ids
+            .retain(|id| id != &paper_id && id != &arxiv_prefixed_id);
+        if project.paper_ids.len() != before_len {
+            projects_changed = true;
+        }
+    }
+    if projects_changed {
+        save_projects_data(&app, &projects_data)?;
+    }
+
+    remove_seen_paper_id(&papers_dir, &paper_id)?;
+
+    if papers.is_empty() {
+        fs::remove_dir_all(&day_dir)
+            .map_err(|e| format!("Failed to remove day directory: {}", e))?;
+        return Ok(());
+    }
+
+    let updated = serde_json::to_string_pretty(&papers)
+        .map_err(|e| format!("Failed to serialize metadata: {}", e))?;
+    fs::write(&metadata_path, updated).map_err(|e| format!("Failed to write metadata: {}", e))?;
+
+    remove_file_if_exists(&day_dir.join("pdfs").join(format!("{}.pdf", paper_id)))?;
+    remove_file_if_exists(&day_dir.join("pdf_text").join(format!("{}.txt", paper_id)))?;
+    remove_file_if_exists(&day_dir.join("analysis").join(format!("{}.md", paper_id)))?;
+    remove_file_if_exists(&day_dir.join("analysis").join(format!("{}_prompt.txt", paper_id)))?;
+    // Review summaries become stale after papers are removed.
+    remove_file_if_exists(&day_dir.join("daily_review.md"))?;
+    remove_file_if_exists(&day_dir.join("daily_review_prompt.txt"))?;
+
+    Ok(())
 }
 
 // ==================== Project Management ====================
@@ -1491,6 +1622,8 @@ Format the response in Markdown with engaging and insightful commentary in Chine
     // Run Claude Code CLI
     use std::io::Write;
     let mut child = Command::new("claude")
+        .arg("--model")
+        .arg("glm-5")
         .arg("--print")
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -1862,6 +1995,39 @@ pub async fn get_imported_paper_detail(
     })
 }
 
+/// Analyze a unified paper reference from All Papers.
+/// Supports both arXiv papers (with optional date_folder hint) and imported papers.
+#[tauri::command]
+pub async fn analyze_unified_paper(
+    app: tauri::AppHandle,
+    paper_id: String,
+    source: String,
+    date_folder: Option<String>,
+) -> Result<String, String> {
+    match source.as_str() {
+        "arxiv" => {
+            let arxiv_id = paper_id.strip_prefix("arxiv:").unwrap_or(&paper_id).to_string();
+
+            if let Some(date) = date_folder {
+                return analyze_paper(app, date, arxiv_id).await;
+            }
+
+            let unified = find_arxiv_paper(&app, &format!("arxiv:{}", arxiv_id))?
+                .ok_or_else(|| "Paper not found".to_string())?;
+            let date = unified
+                .date_folder
+                .ok_or_else(|| "Cannot analyze this arXiv paper: missing date folder".to_string())?;
+
+            analyze_paper(app, date, arxiv_id).await
+        }
+        "imported" => {
+            let imported_id = paper_id.strip_prefix("uuid:").unwrap_or(&paper_id).to_string();
+            analyze_imported_paper(app, imported_id).await
+        }
+        _ => Err(format!("Unsupported paper source: {}", source)),
+    }
+}
+
 /// Analyze an imported paper with Claude
 #[tauri::command]
 pub async fn analyze_imported_paper(
@@ -1917,6 +2083,8 @@ Format the response in Markdown."#,
 
     use std::io::Write;
     let mut child = Command::new("claude")
+        .arg("--model")
+        .arg("glm-5")
         .arg("--print")
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -2229,5 +2397,30 @@ mod tests {
         assert_eq!(result.updated, 1);
         assert_eq!(result.skipped, 1);
         assert_eq!(result.failed, 0);
+    }
+
+    #[test]
+    fn remove_seen_paper_id_removes_all_occurrences() {
+        let mut seen_ids = vec![
+            "a".to_string(),
+            "b".to_string(),
+            "a".to_string(),
+            "c".to_string(),
+        ];
+
+        let removed = remove_seen_paper_id_from_list(&mut seen_ids, "a");
+
+        assert!(removed);
+        assert_eq!(seen_ids, vec!["b".to_string(), "c".to_string()]);
+    }
+
+    #[test]
+    fn remove_seen_paper_id_is_noop_when_absent() {
+        let mut seen_ids = vec!["a".to_string(), "b".to_string()];
+
+        let removed = remove_seen_paper_id_from_list(&mut seen_ids, "missing");
+
+        assert!(!removed);
+        assert_eq!(seen_ids, vec!["a".to_string(), "b".to_string()]);
     }
 }
