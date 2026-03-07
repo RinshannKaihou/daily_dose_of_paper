@@ -18,6 +18,7 @@ import {
 import { usePapers } from '../contexts/PapersContext';
 import { getProjects, createProject, deleteProject, renameProject } from '../utils/api';
 import type { Project } from '../types';
+import ProgressBar from './ProgressBar';
 
 type SidebarViewType = 'papers' | 'review' | 'settings' | 'all-papers' | 'project';
 
@@ -243,8 +244,25 @@ function Sidebar({ currentView, onViewChange, onPaperSelect, selectedProjectId, 
             {analyzingAll && batchProgress
               ? `Analyzing ${batchProgress.current}/${batchProgress.total}...`
               : `Analyze All (${unreviewedCount})`
-            }
+          }
           </button>
+
+          {/* Batch Progress */}
+          {analyzingAll && batchProgress && (
+            <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+              <ProgressBar
+                progress={(batchProgress.current / batchProgress.total) * 100}
+                current={batchProgress.current}
+                total={batchProgress.total}
+                size="sm"
+                color="amber"
+                label="Batch Analysis Progress"
+                showPercentage
+                showCounts
+                countLabel="completed"
+              />
+            </div>
+          )}
 
           {error && (
             <div className="mt-2 p-2 bg-red-100 text-red-700 text-xs rounded-lg">

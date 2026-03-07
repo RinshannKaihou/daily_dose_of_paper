@@ -1,13 +1,42 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { usePapers } from '../contexts/PapersContext';
-import { Sparkles, Loader2, MessageSquare, AlertCircle, X } from 'lucide-react';
+import { Sparkles, Loader2, MessageSquare, AlertCircle, X, FileText } from 'lucide-react';
 import MarkdownRenderer from './MarkdownRenderer';
+import StatsCard from './StatsCard';
+import ProgressBar from './ProgressBar';
 
 function DailyReview() {
   const { dayPapers, selectedDate, generateDailyReview, error, clearError } = usePapers();
   const [generating, setGenerating] = useState(false);
   const [localReview, setLocalReview] = useState<string | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
+
+  // Calculate stats for the daily summary
+  const stats = useMemo(() => {
+    if (!dayPapers?.papers.length) return null;
+    
+    const total = dayPapers.papers.length;
+    const analyzed = dayPapers.papers.filter(p => p.analysis_path).length;
+    
+    // Get category distribution
+    const categoryCount: Record<string, number> = {};
+    dayPapers.papers.forEach(paper => {
+      paper.categories.forEach(cat => {
+        categoryCount[cat] = (categoryCount[cat] || 0) + 1;
+      });
+    });
+    
+    const topCategory = Object.entries(categoryCount)
+      .sort((a, b) => b[1] - a[1])[0];
+    
+    return {
+      total,
+      analyzed,
+      progress: total > 0 ? (analyzed / total) * 100 : 0,
+      topCategory: topCategory?.[0],
+      topCategoryCount: topCategory?.[1],
+    };
+  }, [dayPapers]);
 
   const handleGenerate = async () => {
     try {
@@ -69,6 +98,36 @@ function DailyReview() {
             {generating ? 'Generating...' : review ? 'Regenerate' : 'Generate Review'}
           </button>
         </div>
+
+        {/* Daily Stats */}
+        {stats && (
+          <div className="mb-6 grid grid-cols-2 md:grid-cols-4 gap-3">
+            <StatsCard
+              icon={FileText}
+              label="Today's Papers"
+              value={stats.total}
+              color="blue"
+            />
+            <StatsCard
+              icon={Sparkles}
+              label="Analyzed"
+              value={stats.analyzed}
+              color="amber"
+            />
+            <div className="col-span-2 bg-gray-50 rounded-xl border border-gray-200 p-4">
+              <ProgressBar
+                progress={stats.progress}
+                current={stats.analyzed}
+                total={stats.total}
+                label="Analysis Progress"
+                color="amber"
+                showPercentage
+                showCounts
+                countLabel="analyzed"
+              />
+            </div>
+          </div>
+        )}
 
         {/* Error Message */}
         {displayError && (

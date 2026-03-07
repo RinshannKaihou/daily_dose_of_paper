@@ -470,13 +470,8 @@ pub async fn analyze_paper(
         .find(|p| p.id == paper_id)
         .ok_or_else(|| "Paper not found".to_string())?;
 
-    // Read PDF text
-    let pdf_text_path = day_dir.join("pdf_text").join(format!("{}.txt", paper_id));
-    let pdf_text = if pdf_text_path.exists() {
-        fs::read_to_string(&pdf_text_path).map_err(|e| format!("Failed to read PDF text: {}", e))?
-    } else {
-        return Err("PDF text not found. Please parse PDF first.".to_string());
-    };
+    // Read PDF text, extracting on-demand when missing.
+    let pdf_text = ensure_daily_pdf_text(&app, &day_dir, paper)?;
 
     // Create analysis directory
     let analysis_dir = day_dir.join("analysis");
@@ -1069,6 +1064,44 @@ fn get_imported_analyses_dir(app: &tauri::AppHandle) -> PathBuf {
 fn extract_pdf_text(app: &tauri::AppHandle, file_path: &str) -> Result<String, String> {
     let result = extract_pdf_info(app, file_path, true)?;
     Ok(result.text.unwrap_or_default())
+}
+
+fn resolve_daily_pdf_path(day_dir: &Path, paper: &Paper) -> Option<PathBuf> {
+    if let Some(saved_path) = &paper.pdf_path {
+        let saved = PathBuf::from(saved_path);
+        if saved.exists() {
+            return Some(saved);
+        }
+    }
+
+    let fallback = day_dir.join("pdfs").join(format!("{}.pdf", paper.id));
+    if fallback.exists() {
+        Some(fallback)
+    } else {
+        None
+    }
+}
+
+fn ensure_daily_pdf_text(
+    app: &tauri::AppHandle,
+    day_dir: &Path,
+    paper: &Paper,
+) -> Result<String, String> {
+    let pdf_text_path = day_dir.join("pdf_text").join(format!("{}.txt", paper.id));
+    if pdf_text_path.exists() {
+        return fs::read_to_string(&pdf_text_path)
+            .map_err(|e| format!("Failed to read PDF text: {}", e));
+    }
+
+    let pdf_path = resolve_daily_pdf_path(day_dir, paper)
+        .ok_or_else(|| "PDF file not found. Please fetch/download PDF first.".to_string())?;
+    let extracted = extract_pdf_text(app, &pdf_path.to_string_lossy())?;
+
+    let text_dir = day_dir.join("pdf_text");
+    fs::create_dir_all(&text_dir).map_err(|e| format!("Failed to create PDF text dir: {}", e))?;
+    fs::write(&pdf_text_path, &extracted).map_err(|e| format!("Failed to write PDF text: {}", e))?;
+
+    Ok(extracted)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

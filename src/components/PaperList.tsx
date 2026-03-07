@@ -14,6 +14,8 @@ import {
 } from 'lucide-react';
 import { openPdf, openUrl, getProjects, addPaperToProject } from '../utils/api';
 import type { Project } from '../types';
+import CategoryBadge from './CategoryBadge';
+import ProgressBar from './ProgressBar';
 
 interface PaperListProps {
   onPaperSelect: (paperId: string) => void;
@@ -142,6 +144,11 @@ function PaperList({ onPaperSelect }: PaperListProps) {
   };
 
   const displayError = localError || error;
+  
+  // Calculate stats
+  const totalCount = dayPapers?.papers.length ?? 0;
+  const analyzedCount = dayPapers?.papers.filter(p => p.analysis_path).length ?? 0;
+  const analysisProgress = totalCount > 0 ? (analyzedCount / totalCount) * 100 : 0;
 
   if (!selectedDate) {
     return (
@@ -193,7 +200,15 @@ function PaperList({ onPaperSelect }: PaperListProps) {
                 day: 'numeric',
               })}
             </h1>
-            <p className="text-gray-500 mt-1">{dayPapers.papers.length} papers</p>
+            <div className="flex items-center gap-4 mt-1">
+            <p className="text-gray-500">{dayPapers.papers.length} papers</p>
+            {analyzedCount > 0 && (
+              <span className="text-sm text-amber-600 flex items-center gap-1">
+                <Sparkles className="w-3.5 h-3.5" />
+                {analyzedCount} of {totalCount} analyzed ({Math.round(analysisProgress)}%)
+              </span>
+            )}
+          </div>
           </div>
           <div className="flex items-center gap-3">
             <button
@@ -222,6 +237,22 @@ function PaperList({ onPaperSelect }: PaperListProps) {
             </button>
           </div>
         </div>
+
+        {/* Progress Bar */}
+        {totalCount > 0 && (
+          <div className="mb-4 bg-white rounded-lg border border-gray-200 p-4">
+            <ProgressBar
+              progress={analysisProgress}
+              current={analyzedCount}
+              total={totalCount}
+              label="Analysis Progress"
+              color="amber"
+              showPercentage
+              showCounts
+              countLabel="analyzed"
+            />
+          </div>
+        )}
 
         {/* Error Message */}
         {displayError && (
@@ -273,13 +304,14 @@ function PaperList({ onPaperSelect }: PaperListProps) {
                   )}
                   <div className="flex items-center gap-2 flex-wrap">
                     {paper.categories.map((cat) => (
-                      <span
-                        key={cat}
-                        className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded"
-                      >
-                        {cat}
-                      </span>
+                      <CategoryBadge key={cat} category={cat} size="sm" />
                     ))}
+                    {paper.analysis_path && (
+                      <span className="text-xs px-2 py-1 rounded-full bg-amber-100 text-amber-700 flex items-center gap-1">
+                        <Sparkles className="w-3 h-3" />
+                        Analyzed
+                      </span>
+                    )}
                   </div>
                 </div>
                 <div className="flex items-center gap-2 ml-4">

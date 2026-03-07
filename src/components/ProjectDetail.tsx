@@ -18,6 +18,10 @@ import {
 import type { UnifiedPaper, Project } from '../types';
 import MarkdownRenderer from './MarkdownRenderer';
 import { open } from '@tauri-apps/plugin-shell';
+import StatsCard from './StatsCard';
+import CategoryBadge from './CategoryBadge';
+import AnalysisStatusBadge from './AnalysisStatusBadge';
+import ProgressBar from './ProgressBar';
 
 interface ProjectDetailProps {
   projectId: string;
@@ -142,6 +146,19 @@ function ProjectDetail({ projectId, onBack, onPaperSelect, onImportedPaperSelect
   }
 
   const analyzedCount = papers.filter((p) => p.analysis_path).length;
+  const analysisProgress = papers.length > 0 ? (analyzedCount / papers.length) * 100 : 0;
+
+  // Calculate category distribution
+  const categoryCount: Record<string, number> = {};
+  papers.forEach(paper => {
+    paper.categories.forEach(cat => {
+      categoryCount[cat] = (categoryCount[cat] || 0) + 1;
+    });
+  });
+  
+  const topCategories = Object.entries(categoryCount)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3);
 
   return (
     <div className="h-full flex flex-col bg-gray-50">
@@ -182,6 +199,69 @@ function ProjectDetail({ projectId, onBack, onPaperSelect, onImportedPaperSelect
       {error && (
         <div className="mx-4 mt-4 p-3 bg-red-100 text-red-700 rounded-lg text-sm">
           {error}
+        </div>
+      )}
+
+      {/* Stats Overview */}
+      {papers.length > 0 && (
+        <div className="mx-4 mt-4">
+          <div className="bg-white rounded-xl border border-gray-200 p-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+              <StatsCard
+                icon={FileText}
+                label="Total Papers"
+                value={papers.length}
+                color="blue"
+              />
+              <StatsCard
+                icon={Sparkles}
+                label="Analyzed"
+                value={analyzedCount}
+                subtext={`${analyzedCount} of ${papers.length} analyzed`}
+                color="amber"
+              />
+              <StatsCard
+                icon={FileText}
+                label="Pending"
+                value={papers.length - analyzedCount}
+                color={analysisProgress < 100 ? 'purple' : 'green'}
+              />
+              <StatsCard
+                icon={Sparkles}
+                label="Top Category"
+                value={topCategories[0]?.[0].split('.')[1] || 'N/A'}
+                subtext={topCategories[0] ? `${topCategories[0][1]} papers` : 'No data'}
+                color="green"
+              />
+            </div>
+            
+            {/* Analysis Progress */}
+            <ProgressBar
+              progress={analysisProgress}
+              current={analyzedCount}
+              total={papers.length}
+              label="Project Analysis Progress"
+              color="amber"
+              showPercentage
+              showCounts
+              countLabel="analyzed"
+            />
+
+            {/* Top Categories */}
+            {topCategories.length > 0 && (
+              <div className="mt-4 pt-4 border-t border-gray-100">
+                <p className="text-sm font-medium text-gray-700 mb-2">Top Categories</p>
+                <div className="flex flex-wrap gap-2">
+                  {topCategories.map(([cat, count]) => (
+                    <div key={cat} className="flex items-center gap-1.5">
+                      <CategoryBadge category={cat} size="sm" />
+                      <span className="text-xs text-gray-500">({count})</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -249,12 +329,10 @@ function ProjectDetail({ projectId, onBack, onPaperSelect, onImportedPaperSelect
                         >
                           {paper.source === 'arxiv' ? 'arXiv' : 'Imported'}
                         </span>
-                        {paper.analysis_path && (
-                          <span className="text-xs px-2 py-0.5 rounded bg-amber-100 text-amber-700 flex items-center gap-1">
-                            <Sparkles className="w-3 h-3" />
-                            Analyzed
-                          </span>
-                        )}
+                        <AnalysisStatusBadge
+                          status={paper.analysis_path ? 'analyzed' : 'pending'}
+                          size="sm"
+                        />
                         <span className="text-xs text-gray-400 flex items-center gap-1">
                           <Calendar className="w-3 h-3" />
                           {formatDate(paper.published)}

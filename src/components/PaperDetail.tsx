@@ -2,8 +2,10 @@ import { usePaperDetail } from '../hooks/usePapers';
 import { usePapers } from '../contexts/PapersContext';
 import { ArrowLeft, ExternalLink, FileText, Sparkles, Loader2, AlertCircle, X, Trash2 } from 'lucide-react';
 import { openPdf, openUrl } from '../utils/api';
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import MarkdownRenderer from './MarkdownRenderer';
+import CategoryBadge from './CategoryBadge';
+import RatingDisplay from './RatingDisplay';
 
 interface PaperDetailProps {
   paperId: string;
@@ -16,6 +18,32 @@ function PaperDetail({ paperId, onBack }: PaperDetailProps) {
   const [localAnalysis, setLocalAnalysis] = useState<string | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  // Parse rating from analysis text
+  const parsedRating = useMemo(() => {
+    const analysis = localAnalysis || detail?.analysis;
+    if (!analysis) return null;
+
+    // Look for patterns like "推荐指数: 4.5/5" or "推荐指数：4/5" or "Rating: 8/10"
+    const ratingMatch = analysis.match(/推荐指数[:：]\s*(\d+(?:\.\d+)?)\s*\/\s*(\d+)/);
+    if (ratingMatch) {
+      return {
+        value: parseFloat(ratingMatch[1]),
+        max: parseInt(ratingMatch[2], 10),
+      };
+    }
+
+    // Alternative pattern: "推荐指数 4.5/5"
+    const altMatch = analysis.match(/推荐指数\s+(\d+(?:\.\d+)?)\s*\/\s*(\d+)/);
+    if (altMatch) {
+      return {
+        value: parseFloat(altMatch[1]),
+        max: parseInt(altMatch[2], 10),
+      };
+    }
+
+    return null;
+  }, [detail?.analysis, localAnalysis]);
 
   const paper = dayPapers?.papers.find((p) => p.id === paperId);
   const isAnalyzingThis = analyzingPaperId === paperId;
@@ -143,11 +171,26 @@ function PaperDetail({ paperId, onBack }: PaperDetailProps) {
           <div className="flex items-center gap-4 text-sm text-gray-500 mb-4">
             <span>Published: {new Date(detail.published).toLocaleDateString()}</span>
             {paper?.categories.map((cat) => (
-              <span key={cat} className="bg-gray-100 px-2 py-1 rounded">
-                {cat}
-              </span>
+              <CategoryBadge key={cat} category={cat} size="sm" />
             ))}
           </div>
+
+          {/* Rating Display */}
+          {parsedRating && (
+            <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+              <div className="flex items-center gap-2 mb-1">
+                <Sparkles className="w-4 h-4 text-amber-600" />
+                <span className="text-sm font-medium text-amber-800">
+                  AI Recommendation
+                </span>
+              </div>
+              <RatingDisplay
+                rating={parsedRating.value}
+                maxRating={parsedRating.max}
+                size="md"
+              />
+            </div>
+          )}
 
           <div className="flex items-center gap-3">
             <button

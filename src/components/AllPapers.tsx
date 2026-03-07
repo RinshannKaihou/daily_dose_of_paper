@@ -10,6 +10,7 @@ import {
   Filter,
   RefreshCw,
   Trash2,
+  LayoutDashboard,
 } from 'lucide-react';
 import {
   getAllPapers,
@@ -21,6 +22,8 @@ import {
 import type { UnifiedPaper, Project, Config } from '../types';
 import { open } from '@tauri-apps/plugin-shell';
 import { usePapers } from '../contexts/PapersContext';
+import Dashboard from './Dashboard';
+import ProgressBar from './ProgressBar';
 
 interface AllPapersProps {
   onPaperSelect?: (paperId: string, date?: string) => void;
@@ -68,6 +71,7 @@ function AllPapers({ onPaperSelect, onImportedPaperSelect }: AllPapersProps) {
   const [showProjectMenu, setShowProjectMenu] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
   const [config, setConfig] = useState<Config | null>(allPapersCache.config);
+  const [showDashboard, setShowDashboard] = useState(true);
   const menuRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const hasRestoredScrollRef = useRef(false);
@@ -245,6 +249,8 @@ function AllPapers({ onPaperSelect, onImportedPaperSelect }: AllPapersProps) {
 
   const arxivCount = papers.filter((p) => p.source === 'arxiv').length;
   const importedCount = papers.filter((p) => p.source === 'imported').length;
+  const analyzedCount = papers.filter((p) => p.analysis_path).length;
+  const analysisProgress = papers.length > 0 ? (analyzedCount / papers.length) * 100 : 0;
 
   return (
     <div className="h-full flex flex-col bg-gray-50">
@@ -255,9 +261,26 @@ function AllPapers({ onPaperSelect, onImportedPaperSelect }: AllPapersProps) {
             <h1 className="text-2xl font-bold text-gray-800">All Papers</h1>
             <p className="text-sm text-gray-500 mt-1">
               {arxivCount} from arXiv · {importedCount} from your collection
+              {papers.length > 0 && (
+                <span className="ml-2 text-amber-600">
+                  · {analyzedCount} of {papers.length} analyzed ({Math.round(analysisProgress)}%)
+                </span>
+              )}
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowDashboard(!showDashboard)}
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
+                showDashboard
+                  ? 'bg-primary-100 text-primary-700'
+                  : 'text-gray-600 hover:bg-gray-100'
+              }`}
+              title="Toggle Dashboard"
+            >
+              <LayoutDashboard className="w-4 h-4" />
+              <span className="text-sm">Dashboard</span>
+            </button>
             {config?.my_papers_dir && (
               <button
                 onClick={handleScan}
@@ -315,7 +338,31 @@ function AllPapers({ onPaperSelect, onImportedPaperSelect }: AllPapersProps) {
             <strong>Tip:</strong> Configure your papers directory in Settings to automatically load your personal PDF collection.
           </div>
         )}
+
+        {/* Progress Bar */}
+        {papers.length > 0 && (
+          <div className="mt-4">
+            <ProgressBar
+              progress={analysisProgress}
+              current={analyzedCount}
+              total={papers.length}
+              size="sm"
+              color="amber"
+              label="Analysis Progress"
+              showPercentage
+              showCounts
+              countLabel="analyzed"
+            />
+          </div>
+        )}
       </div>
+
+      {/* Dashboard */}
+      {showDashboard && !loading && papers.length > 0 && (
+        <div className="px-4 pt-4">
+          <Dashboard papers={papers} />
+        </div>
+      )}
 
       {/* Error Message */}
       {error && (

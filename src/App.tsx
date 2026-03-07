@@ -8,7 +8,8 @@ import AllPapers from './components/AllPapers';
 import ProjectDetail from './components/ProjectDetail';
 import ImportPaperDetail from './components/ImportPaperDetail';
 import { PapersProvider, usePapers } from './contexts/PapersContext';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Sparkles } from 'lucide-react';
+import ProgressBar from './components/ProgressBar';
 
 type ViewType = 'papers' | 'review' | 'settings' | 'all-papers' | 'project' | 'import-detail';
 
@@ -28,39 +29,70 @@ function AnalyzingIndicator() {
   const currentPaper = dayPapers?.papers.find(p => p.id === analyzingPaperId);
   const paperTitle = currentPaper?.title?.slice(0, 50) + (currentPaper && currentPaper.title.length > 50 ? '...' : '');
 
+  // Calculate progress for batch analysis
+  const batchProgressPercent = batchProgress
+    ? (batchProgress.current / batchProgress.total) * 100
+    : 0;
+
+  // Calculate progress for imported queue
+  const totalImportedQueue = importedQueueCount + (importedAnalyzingPaperId ? 0 : 1);
+  const processedImported = importedAnalyzingPaperId ? 1 : 0;
+  const importedProgressPercent = importedQueueCount > 0
+    ? (processedImported / totalImportedQueue) * 100
+    : 0;
+
   return (
-    <div className="fixed bottom-4 right-4 bg-white shadow-lg rounded-lg px-4 py-3 border border-amber-200 z-50 min-w-80">
-      <div className="text-sm space-y-2">
+    <div className="fixed bottom-4 right-4 bg-white shadow-lg rounded-xl px-4 py-3 border border-amber-200 z-50 w-80">
+      <div className="text-sm space-y-3">
         {analyzing && (
-          <div className="flex items-center gap-3">
-            <Loader2 className="w-5 h-5 text-amber-500 animate-spin flex-shrink-0" />
-            <div>
-              {batchProgress ? (
-                <>
-                  <span className="text-gray-700">Batch analysis: </span>
-                  <span className="text-gray-900 font-medium">{batchProgress.current}/{batchProgress.total}</span>
-                  <span className="text-gray-500 ml-2">- {paperTitle || 'Paper...'}</span>
-                </>
-              ) : (
-                <>
-                  <span className="text-gray-700">Analyzing: </span>
-                  <span className="text-gray-900 font-medium">{paperTitle || 'Paper...'}</span>
-                </>
-              )}
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <Sparkles className="w-4 h-4 text-amber-500" />
+              <span className="text-gray-700 font-medium">
+                {batchProgress ? 'Batch Analysis' : 'Analyzing Paper'}
+              </span>
             </div>
+            {batchProgress ? (
+              <div className="space-y-2">
+                <ProgressBar
+                  progress={batchProgressPercent}
+                  current={batchProgress.current}
+                  total={batchProgress.total}
+                  size="sm"
+                  color="amber"
+                  showPercentage
+                  showCounts
+                  countLabel="completed"
+                />
+                <p className="text-xs text-gray-500 truncate">
+                  Currently analyzing: {paperTitle || 'Paper...'}
+                </p>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <Loader2 className="w-4 h-4 text-amber-500 animate-spin" />
+                <span className="text-gray-600 truncate">{paperTitle || 'Paper...'}</span>
+              </div>
+            )}
           </div>
         )}
 
         {importedQueueCount > 0 && (
-          <div className={`flex items-center gap-3 ${analyzing ? 'pt-2 border-t border-gray-100' : ''}`}>
-            <Loader2 className="w-5 h-5 text-amber-500 animate-spin flex-shrink-0" />
-            <div>
-              <span className="text-gray-700">Imported analysis queue: </span>
-              <span className="text-gray-900 font-medium">{importedQueueCount}</span>
-              <span className="text-gray-500 ml-2">
-                ({importedQueuedPaperIds.length} waiting)
-              </span>
+          <div className={`${analyzing ? 'pt-2 border-t border-gray-100' : ''}`}>
+            <div className="flex items-center gap-2 mb-2">
+              <Sparkles className="w-4 h-4 text-blue-500" />
+              <span className="text-gray-700 font-medium">Imported Papers Queue</span>
             </div>
+            <ProgressBar
+              progress={importedProgressPercent}
+              current={importedQueueCount > 0 ? 1 : 0}
+              total={importedQueueCount + (importedAnalyzingPaperId ? 1 : 0)}
+              size="sm"
+              color="blue"
+              showPercentage
+              showCounts
+              countLabel="processed"
+            />
           </div>
         )}
       </div>
